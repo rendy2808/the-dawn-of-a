@@ -278,7 +278,8 @@ body.mode-graph #snap-indicator{display:block}
   }
   #sidebar.open{transform:translateX(0)}
   #menu-btn{display:flex}
-  #cw{padding:16px;justify-content:flex-start;align-items:flex-start}
+  #cw{padding:0;overflow:hidden;position:relative;justify-content:flex-start;align-items:flex-start}
+  #cc{position:absolute;transform-origin:0 0}
   .tmpl-cards{grid-template-columns:1fr;gap:8px}
   .tmpl-preview{height:140px}
   .tmpl-preview svg{width:auto;height:100%;max-width:100%;display:block;margin:0 auto}
@@ -637,12 +638,31 @@ const S={
 
 const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d');
+const VP={scale:1,ox:0,oy:0};
+function isMobile(){return window.innerWidth<=768;}
+function applyVP(){
+  if(!isMobile())return;
+  const cc=document.getElementById('cc'),cw=document.getElementById('cw');
+  const{w,h}=SIZES[S.sz],vw=cw.clientWidth,vh=cw.clientHeight,minV=50;
+  VP.ox=Math.min(VP.ox,vw-minV);VP.ox=Math.max(VP.ox,-(w*VP.scale)+minV);
+  VP.oy=Math.min(VP.oy,vh-minV);VP.oy=Math.max(VP.oy,-(h*VP.scale)+minV);
+  cc.style.transform=`translate(${VP.ox}px,${VP.oy}px) scale(${VP.scale})`;
+}
+function fitToScreen(){
+  if(!isMobile())return;
+  const cw=document.getElementById('cw'),{w,h}=SIZES[S.sz];
+  const vw=cw.clientWidth,vh=cw.clientHeight,m=20;
+  VP.scale=Math.min((vw-m*2)/w,(vh-m*2)/h,1);
+  VP.ox=(vw-w*VP.scale)/2;VP.oy=Math.max((vh-h*VP.scale)/2,m);
+  applyVP();
+}
 
 function initCanvas(szName){
   S.sz=szName;const{w,h}=SIZES[szName];
   canvas.width=w*S.dpr;canvas.height=h*S.dpr;
   canvas.style.width=w+'px';canvas.style.height=h+'px';
   ctx.setTransform(S.dpr,0,0,S.dpr,0,0);render();
+  requestAnimationFrame(fitToScreen);
 }
 
 let _saveT=null;
@@ -866,10 +886,44 @@ canvas.addEventListener('mousedown',e=>{if(e.button!==0)return;e.preventDefault(
 canvas.addEventListener('mousemove',e=>{e.preventDefault();onMove(cpos(e));});
 canvas.addEventListener('mouseup',  e=>{e.preventDefault();onUp();});
 canvas.addEventListener('mouseleave',()=>onUp());
-canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];onDown(cposFromClient(t.clientX,t.clientY));},{passive:false});
-canvas.addEventListener('touchmove', e=>{e.preventDefault();const t=e.touches[0];onMove(cposFromClient(t.clientX,t.clientY));},{passive:false});
-canvas.addEventListener('touchend',  e=>{e.preventDefault();onUp();},{passive:false});
-canvas.addEventListener('touchcancel',()=>onUp());
+let _pinch=null;
+function _pinchInit(e){
+  const t1=e.touches[0],t2=e.touches[1];
+  _pinch={dist:Math.hypot(t2.clientX-t1.clientX,t2.clientY-t1.clientY),
+    mx:(t1.clientX+t2.clientX)/2,my:(t1.clientY+t2.clientY)/2,
+    scale:VP.scale,ox:VP.ox,oy:VP.oy};
+  if(S.drawing){S.drawing=false;S.elem=null;render();}onUp();
+}
+function _pinchMove(e){
+  const t1=e.touches[0],t2=e.touches[1];
+  const dist=Math.hypot(t2.clientX-t1.clientX,t2.clientY-t1.clientY);
+  const mx=(t1.clientX+t2.clientX)/2,my=(t1.clientY+t2.clientY)/2;
+  const newScale=Math.max(0.1,Math.min(6,_pinch.scale*(dist/_pinch.dist)));
+  const cx=(_pinch.mx-_pinch.ox)/_pinch.scale,cy=(_pinch.my-_pinch.oy)/_pinch.scale;
+  VP.scale=newScale;VP.ox=mx-cx*newScale;VP.oy=my-cy*newScale;
+  applyVP();
+}
+const cw=document.getElementById('cw');
+cw.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  if(e.touches.length===2){_pinchInit(e);}
+  else if(e.touches.length===1&&!_pinch){
+    const t=e.touches[0],r=canvas.getBoundingClientRect();
+    if(t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom)
+      onDown(cposFromClient(t.clientX,t.clientY));
+  }
+},{passive:false});
+cw.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(e.touches.length===2&&_pinch)_pinchMove(e);
+  else if(e.touches.length===1&&!_pinch){const t=e.touches[0];onMove(cposFromClient(t.clientX,t.clientY));}
+},{passive:false});
+cw.addEventListener('touchend',e=>{
+  e.preventDefault();
+  if(e.touches.length===0){_pinch=null;onUp();}
+  else if(e.touches.length<2)_pinch=null;
+},{passive:false});
+cw.addEventListener('touchcancel',()=>{_pinch=null;onUp();});
 
 function closeSidebarMobile(){if(window.innerWidth<=768){document.getElementById('sidebar').classList.remove('open');document.getElementById('sb-overlay').classList.remove('show');}}
 
@@ -962,6 +1016,7 @@ function goPage(idx,dir){
   document.body.appendChild(ov);
   S.cur=idx;S.selEl=null;S.hist=[JSON.parse(JSON.stringify(pg().elements))];S.hi=0;
   render();piUpdate();scheduleSave();
+  requestAnimationFrame(fitToScreen);
   ov.addEventListener('animationend',()=>ov.remove());
 }
 
