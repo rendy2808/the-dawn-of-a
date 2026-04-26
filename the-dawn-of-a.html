@@ -163,7 +163,7 @@ body.mode-graph #snap-indicator{display:block}
 #cc{position:relative;flex-shrink:0}
 #canvas{
   display:block;background:var(--paper);cursor:crosshair;
-  border-radius:1px;
+  border-radius:1px;touch-action:none;
   box-shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.06),0 16px 40px rgba(0,0,0,.08);
 }
 #canvas.sel{cursor:default}
@@ -258,9 +258,43 @@ body.mode-graph #snap-indicator{display:block}
   border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;
   box-shadow:0 2px 8px rgba(244,81,30,.3);
 }
+
+/* ══ MOBILE ══ */
+#menu-btn{
+  display:none;width:38px;height:38px;align-items:center;justify-content:center;
+  border:1px solid var(--border);border-radius:8px;background:transparent;
+  cursor:pointer;color:var(--ink2);flex-shrink:0;margin-right:2px;
+}
+#sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:199;backdrop-filter:blur(1px)}
+#sb-overlay.show{display:block}
+
+@media(max-width:768px){
+  #sidebar{
+    position:fixed;left:0;top:0;bottom:0;z-index:200;
+    width:82%;max-width:300px;
+    transform:translateX(-108%);
+    transition:transform .28s cubic-bezier(.4,0,.2,1);
+    box-shadow:8px 0 40px rgba(0,0,0,.18);
+  }
+  #sidebar.open{transform:translateX(0)}
+  #menu-btn{display:flex}
+  #cw{padding:16px;justify-content:flex-start;align-items:flex-start}
+  .tmpl-cards{grid-template-columns:1fr;gap:8px}
+  .tmpl-preview{height:80px}
+  .tmpl-box{padding:22px 18px 18px;max-height:90vh;overflow-y:auto;width:94%;border-radius:14px}
+  .tmpl-title{font-size:22px}
+  .tmpl-tagline{margin-bottom:16px}
+  .tmpl-actions{flex-direction:column-reverse;gap:6px}
+  .tmpl-btn{width:100%;text-align:center;padding:12px}
+  #topbar{padding:0 8px;gap:3px;overflow-x:auto}
+  #topbar::-webkit-scrollbar{display:none}
+  .pb{padding:0 8px;font-size:11px}
+  #pi{min-width:56px;font-size:11px}
+}
 </style>
 </head>
 <body>
+<div id="sb-overlay"></div>
 <div id="app">
 
 <!-- ══ SIDEBAR ══ -->
@@ -495,6 +529,7 @@ body.mode-graph #snap-indicator{display:block}
 <!-- ══ MAIN ══ -->
 <div id="main">
   <div id="topbar">
+    <button id="menu-btn" aria-label="Menu"><svg width="16" height="12" viewBox="0 0 16 12"><path d="M0 1h16M0 6h16M0 11h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
     <button class="pb" id="pp">&#8249;</button>
     <span id="pi">Page 1 / 1</span>
     <button class="pb" id="np">&#8250;</button>
@@ -818,19 +853,27 @@ function saveHist(){const snap=JSON.parse(JSON.stringify(pg().elements));S.hist=
 function undo(){if(S.hi>0){S.hi--;pg().elements=JSON.parse(JSON.stringify(S.hist[S.hi]));S.selEl=null;render();}}
 function redo(){if(S.hi<S.hist.length-1){S.hi++;pg().elements=JSON.parse(JSON.stringify(S.hist[S.hi]));S.selEl=null;render();}}
 function piUpdate(){document.getElementById('pi').textContent=`Page ${S.cur+1} / ${S.pages.length}`;}
-function cpos(e){
+function cposFromClient(cx,cy){
   const r=canvas.getBoundingClientRect(),{w,h}=SIZES[S.sz];
-  let x=(e.clientX-r.left)*(w/r.width),y=(e.clientY-r.top)*(h/r.height);
+  let x=(cx-r.left)*(w/r.width),y=(cy-r.top)*(h/r.height);
   if(S.snap&&S.mode==='graph'){const g=S.gridSz;x=Math.round(x/g)*g;y=Math.round(y/g)*g;}
   return{x,y};
 }
+function cpos(e){return cposFromClient(e.clientX,e.clientY);}
 
 canvas.addEventListener('mousedown',e=>{if(e.button!==0)return;e.preventDefault();onDown(cpos(e));});
 canvas.addEventListener('mousemove',e=>{e.preventDefault();onMove(cpos(e));});
 canvas.addEventListener('mouseup',  e=>{e.preventDefault();onUp();});
 canvas.addEventListener('mouseleave',()=>onUp());
+canvas.addEventListener('touchstart',e=>{e.preventDefault();const t=e.touches[0];onDown(cposFromClient(t.clientX,t.clientY));},{passive:false});
+canvas.addEventListener('touchmove', e=>{e.preventDefault();const t=e.touches[0];onMove(cposFromClient(t.clientX,t.clientY));},{passive:false});
+canvas.addEventListener('touchend',  e=>{e.preventDefault();onUp();},{passive:false});
+canvas.addEventListener('touchcancel',()=>onUp());
+
+function closeSidebarMobile(){if(window.innerWidth<=768){document.getElementById('sidebar').classList.remove('open');document.getElementById('sb-overlay').classList.remove('show');}}
 
 function onDown(p){
+  closeSidebarMobile();
   S.startPt=S.lastPt=p;
   if(S.tool==='text'){startText(p);return;}
   if(S.tool==='select'){
@@ -976,6 +1019,9 @@ document.addEventListener('keydown',e=>{
   if(e.key==='ArrowLeft')goPage(S.cur-1,-1);
   if(e.key==='ArrowRight')goPage(S.cur+1,1);
 });
+
+document.getElementById('menu-btn').addEventListener('click',()=>{document.getElementById('sidebar').classList.toggle('open');document.getElementById('sb-overlay').classList.toggle('show');});
+document.getElementById('sb-overlay').addEventListener('click',()=>{document.getElementById('sidebar').classList.remove('open');document.getElementById('sb-overlay').classList.remove('show');});
 
 document.getElementById('newdoc').addEventListener('click',()=>showTmpl(true));
 function showTmpl(withCancel){document.getElementById('tmpl-overlay').classList.remove('hidden');document.getElementById('tmpl-cancel').style.display=withCancel?'inline-block':'none';document.getElementById('continue-banner').style.display='none';}
